@@ -25,35 +25,37 @@ volatile bool g_newPkt = false;
 volatile uint32_t g_lastRecv = 0;
 
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len) {
-  // 檢查封包大小是否相符，不相符代表結構不同步，直接丟棄
   if (len != (int)sizeof(ControlPacket)) return;
   
   memcpy((void*)&g_pkt, incomingData, sizeof(ControlPacket));
   g_newPkt = true;
   g_lastRecv = millis();
 
-  // 立即反應：收到封包就閃一下 LED（示波器感）
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(500); // 給予 Serial 穩定時間
+  
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
+  // 初始化 WiFi 並列印 MAC
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  Serial.print("RX MAC: ");
+  
+  Serial.println("\n==============================");
+  Serial.print("Device MAC Address: ");
   Serial.println(WiFi.macAddress());
+  Serial.println("==============================\n");
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW init failed");
     while (true) delay(1000);
   }
   
-  // 註冊接收回呼函式
   esp_now_register_recv_cb(OnDataRecv);
-
   Serial.println("RX ready.");
 }
 
@@ -61,16 +63,13 @@ void loop() {
   static uint32_t lastPrint = 0;
   uint32_t now = millis();
 
-  // 每 50ms 印一次最新狀態
   if (g_newPkt && now - lastPrint >= 50) {
     lastPrint = now;
     g_newPkt = false;
 
-    // 複製出來印，避免被中斷覆寫
     ControlPacket p;
     memcpy(&p, (const void*)&g_pkt, sizeof(ControlPacket));
 
-    // 更新列印格式，加入 joy3 與 joy4
     Serial.printf("seq=%lu joy1(%d,%d) joy2(%d,%d) joy3(%d,%d) joy4(%d,%d) btn=0x%02X age=%lums\n",
                   (unsigned long)p.seq,
                   p.joy1x, p.joy1y,
@@ -81,7 +80,6 @@ void loop() {
                   (unsigned long)(now - g_lastRecv));
   }
 
-  // 失聯提示：超過 500ms 沒收到封包，LED 長亮
   if (now - g_lastRecv > 500) {
     digitalWrite(LED_PIN, HIGH);
   }
